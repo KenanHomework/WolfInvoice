@@ -1,8 +1,10 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using System.Collections.Immutable;
 using WolfInvoice.Data;
 using WolfInvoice.DTOs.Reports;
 using WolfInvoice.Enums;
 using WolfInvoice.Interfaces.EntityServices;
+using WolfInvoice.Models.DataModels;
 
 namespace WolfInvoice.Services;
 
@@ -24,20 +26,31 @@ public class ReportService : IReportService
     {
         CheckPeriod(period);
 
+        int customersCount = await _context.Customers.CountAsync();
+
+        if (customersCount <= 0)
+            return new();
+
         CustomerReport customerReport = new();
 
-        var customers = await _context.Customers
-            .Include(c => c.Invoices)
-            .Where(c => c.CreatedAt >= period.Start && c.CreatedAt <= period.End)
-            .ToListAsync();
+        var invoices = _context.Invoices
+            .ToListAsync()
+            .Result.FindAll(
+                i =>
+                    IsWithinPeriodStart(i.CreatedAt, period.Start)
+                    && IsWithinPeriodEnd(i.CreatedAt, period.End)
+            );
 
-        customerReport.AverageCostPerCustomer =
-            customers.Average(c => c.Invoices.Sum(i => i.TotalSum)) / customers.Count;
-        customerReport.AverageInvoicePerCustomer =
-            (decimal)customers.Average(c => c.Invoices.Count) / customers.Count;
-        customerReport.AverageInvoicePricePerCustomer = customers.Average(
-            c => c.Invoices.Sum(i => i.TotalSum) / c.Invoices.Count
-        );
+        if (invoices.Count <= 0)
+            return new();
+
+        decimal totalSum = invoices.Sum(i => i.TotalSum);
+
+        customerReport.AverageCostPerCustomer = (totalSum / customersCount);
+
+        customerReport.AverageInvoicePerCustomer = invoices.Count / (decimal)customersCount;
+
+        customerReport.AverageInvoicePricePerCustomer = totalSum / invoices.Count;
 
         return customerReport;
     }
@@ -63,21 +76,41 @@ public class ReportService : IReportService
 
         InvoiceReport report = new();
 
-        var query = _context.Invoices.Where(
-            i => i.CreatedAt >= period.Start && i.CreatedAt <= period.End
-        );
+        var invoices = _context.Invoices
+            .ToListAsync()
+            .Result.FindAll(
+                i =>
+                    IsWithinPeriodStart(i.CreatedAt, period.Start)
+                    && IsWithinPeriodEnd(i.CreatedAt, period.End)
+            );
 
-        if (status.HasValue)
-            query = query.Where(i => i.Status == status);
+        decimal invoicesCost = invoices.Sum(i => i.TotalSum);
+        int invoiceCount = invoices.Count;
 
-        decimal invoicesCost = await query.SumAsync(i => i.TotalSum);
-        int invoiceCount = await query.CountAsync();
+        if (invoiceCount <= 0)
+            return new();
 
         report.TotalCost = invoicesCost;
         report.TotalInvoiceCount = invoiceCount;
         report.AveragePrice = invoicesCost / invoiceCount;
 
         return report;
+    }
+
+    private bool IsWithinPeriodStart(DateTimeOffset dateToCheck, DateTimeOffset? periodStart)
+    {
+        if (periodStart is null)
+            return true;
+
+        return dateToCheck >= periodStart;
+    }
+
+    private bool IsWithinPeriodEnd(DateTimeOffset dateToCheck, DateTimeOffset? periodEnd)
+    {
+        if (periodEnd == null)
+            return true;
+
+        return dateToCheck <= periodEnd;
     }
 
     private static void CheckPeriod(TimePeriod period)

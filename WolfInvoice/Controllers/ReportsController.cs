@@ -35,12 +35,14 @@ public class ReportsController : ControllerBase
     /// <param name="period">The time period.</param>
     /// <returns>The customer report.</returns>
     [HttpGet("customer")]
-    public async Task<ActionResult<CustomerReport>> GetCustomerReport([FromQuery] TimePeriod period)
+    public async Task<ActionResult<CustomerReport>> GetCustomerReport(
+        [FromQuery] TimePeriod request
+    )
     {
         CustomerReport report;
         try
         {
-            report = await _reportService.GetCustomerReport(period);
+            report = await _reportService.GetCustomerReport(request);
         }
         catch (Exception ex)
         {

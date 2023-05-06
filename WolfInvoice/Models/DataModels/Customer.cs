@@ -1,11 +1,13 @@
 ﻿using WolfInvoice.Enums;
+using WolfInvoice.Interfaces.Documents;
+using WolfInvoice.Models.DocumentModels;
 
 namespace WolfInvoice.Models.DataModels;
 
 /// <summary>
 /// Represents a customer in the system.
 /// </summary>
-public class Customer
+public class Customer : IPaymentAddress
 {
     /// <summary>
     /// Gets or sets the unique identifier of the customer.
@@ -68,4 +70,14 @@ public class Customer
     /// User to who customer is bound
     /// </summary>
     public User User { get; set; } = default!;
+
+    ///  <inheritdoc/>
+    public PaymentAddress GetPaymentAddress() =>
+        new()
+        {
+            Name = Name,
+            PhoneNumber = PhoneNumber,
+            Email = Email,
+            Address = Address,
+        };
 }

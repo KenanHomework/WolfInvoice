@@ -90,6 +90,11 @@ public static class DI
         configuration.GetSection("BCrypt").Bind(bcryptConfig);
         services.AddSingleton(bcryptConfig);
 
+        /* Config  Company Information */
+        var companyInfo = new CompanyInfoConfig();
+        configuration.GetSection("CompanyInfo").Bind(companyInfo);
+        services.AddSingleton(companyInfo);
+
         return services;
     }
 

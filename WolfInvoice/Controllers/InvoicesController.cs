@@ -1,6 +1,10 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using QuestPDF.Fluent;
+using WolfInvoice.Configurations;
 using WolfInvoice.Data;
+using WolfInvoice.Documents;
 using WolfInvoice.DTOs.Entities;
 using WolfInvoice.DTOs.Filters;
 using WolfInvoice.DTOs.Pagination;
@@ -10,6 +14,7 @@ using WolfInvoice.Enums;
 using WolfInvoice.Exceptions.EntityExceptions;
 using WolfInvoice.Interfaces.EntityServices;
 using WolfInvoice.Interfaces.IProviders;
+using WolfInvoice.Models.DataModels;
 
 namespace WolfInvoice.Controllers;
 
@@ -22,6 +27,7 @@ namespace WolfInvoice.Controllers;
 public class InvoicesController : ControllerBase
 {
     private readonly WolfInvoiceContext _context;
+    private readonly CompanyInfoConfig _companyInfo;
     private readonly IInvoiceService _invoiceService;
     private readonly IRequestUserProvider _userProvider;
 
@@ -31,15 +37,18 @@ public class InvoicesController : ControllerBase
     /// <param name="context"></param>
     /// <param name="invoiceService"></param>
     /// <param name="userProvider"></param>
+    /// <param name="companyInfo"></param>
     public InvoicesController(
         WolfInvoiceContext context,
         IInvoiceService invoiceService,
-        IRequestUserProvider userProvider
+        IRequestUserProvider userProvider,
+        CompanyInfoConfig companyInfo
     )
     {
         _context = context;
         _invoiceService = invoiceService;
         _userProvider = userProvider;
+        _companyInfo = companyInfo;
     }
 
     /// <summary> Retrieves a paginated list of Invoices filtered by the specified query parameters. </summary>
@@ -96,6 +105,46 @@ public class InvoicesController : ControllerBase
         try
         {
             invoice = await _invoiceService.GetInvoice(userId, invoiceId);
+        }
+        catch (Exception)
+        {
+            return Problem("A problem has occurred please try again later");
+        }
+
+        if (invoice is null)
+            return NotFound();
+
+        return Ok(invoice);
+    }
+
+    /// <summary>
+    /// Downloads an invoice as a PDF file.
+    /// </summary>
+    /// <param name="invoiceId">The ID of the invoice to download.</param>
+    /// <returns>An IActionResult representing the downloaded file.</returns>
+    [HttpGet("{invoiceId}/download")]
+    public async Task<IActionResult> DownloadInvoiceAsPdf(string invoiceId)
+    {
+        if (_context.Invoices is null)
+            return NotFound();
+
+        var userId = _userProvider.GetUserInfo()!.Id;
+
+        Invoice? invoice;
+
+        try
+        {
+            invoice = await _context.Invoices
+                .Include(i => i.Rows)
+                .Include(i => i.Customer)
+                .FirstOrDefaultAsync(i => i.Id.Equals(invoiceId));
+
+            if (invoice is null)
+                return NotFound();
+
+            var document = new InvoiceDocument(invoice, _companyInfo);
+
+            return File(document.GeneratePdf(), "application/pdf");
         }
         catch (Exception)
         {

@@ -89,14 +89,15 @@ public class CustomerService : ICustomerService
             await _context.Users.FirstOrDefaultAsync(u => u.Id.Equals(userId))
             ?? throw new EntityNotFoundException("User not found of given id!");
 
-        var customer =
-            await (
-                from u in _context.Users
-                join c in _context.Customers on u.Id equals c.User.Id
-                where u.Id.Equals(userId) && c.Email.Equals(request.Email)
-                select c
-            ).FirstOrDefaultAsync()
-            ?? throw new EntityConflictException("There is already a customer with this email!");
+        var customer = await (
+            from u in _context.Users
+            join c in _context.Customers on u.Id equals c.User.Id
+            where u.Id.Equals(userId) && c.Email.Equals(request.Email)
+            select c
+        ).FirstOrDefaultAsync();
+
+        if (customer is not null)
+            throw new EntityConflictException("There is already a customer with this email!");
 
         customer = new Customer()
         {

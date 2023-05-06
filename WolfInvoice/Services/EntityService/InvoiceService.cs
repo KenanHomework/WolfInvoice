@@ -32,6 +32,97 @@ public class InvoiceService : IInvoiceService
     }
 
     /// <inheritdoc/>
+    public async Task<PaginatedListDto<InvoiceDto>> GetInvoices(
+        string userId,
+        CreatePaginationRequest paginationRequest,
+        GetListQueryFilter filter
+    )
+    {
+        IQueryable<Invoice> query = _context.Invoices.Where(
+            c => c.User.Id.Equals(userId) && c.EntityStatus == EntityStatus.Active
+        );
+
+        if (!string.IsNullOrWhiteSpace(filter.SearchInput))
+            query = query.Where(i => i.Rows.Any(r => r.Service.Contains(filter.SearchInput)));
+
+        switch (filter.Sorting)
+        {
+            case SortingSide.Ascending:
+                query = query.OrderBy(i => i.TotalSum);
+
+                break;
+            case SortingSide.Descending:
+                query = query.OrderByDescending(i => i.TotalSum);
+                break;
+        }
+
+        var totalCount = await query.CountAsync();
+        var invoices = await query
+            .Skip((paginationRequest.Page - 1) * paginationRequest.PageSize)
+            .Take(paginationRequest.PageSize)
+            .ToListAsync();
+
+        return new PaginatedListDto<InvoiceDto>(
+            invoices.Select(t => new InvoiceDto(t)),
+            new PaginationMeta(paginationRequest.Page, paginationRequest.PageSize, totalCount)
+        );
+    }
+
+    /// <inheritdoc/>
+    public async Task<InvoiceDto?> GetInvoice(string userId, string invoiceId) =>
+        ConvertToDto(
+            await (
+                from u in _context.Users
+                join i in _context.Invoices on u.Id equals i.User.Id
+                join r in _context.InvoiceRows on i.Id equals r.Invoice.Id into rows
+                from r in rows.DefaultIfEmpty()
+                where
+                    u.Id.Equals(userId)
+                    && i.Id.Equals(invoiceId)
+                    && i.EntityStatus == EntityStatus.Active
+                select i
+            ).FirstOrDefaultAsync()
+        );
+
+    /// <inheritdoc/>
+    public async Task<InvoiceDto> CreateInvoice(string userId, CreateInvoiceRequest request)
+    {
+        var user =
+            await _context.Users.FirstOrDefaultAsync(u => u.Id.Equals(userId))
+            ?? throw new EntityNotFoundException("User not found of given id!");
+
+        var customer =
+            await _context.Customers.FirstOrDefaultAsync(
+                c => c.Id.Equals(request.CustomerId) && c.User.Id.Equals(userId)
+            ) ?? throw new EntityNotFoundException("Customer not found of given id!");
+
+        var invoice = new Invoice()
+        {
+            Id = IdGeneratorService.GetShortUniqueId(),
+            User = user,
+            Customer = customer,
+            Comment = request.Comment,
+            Discount = request.Discount,
+            EntityStatus = EntityStatus.Active,
+            Status = InvoiceStatus.Created,
+            CreatedAt = DateTimeOffset.Now,
+            UpdatedAt = DateTimeOffset.Now
+        };
+
+        if (request.Rows is not null && request.Rows.Count > 0)
+            invoice.Rows = request.Rows.Select(r => new InvoiceRow(invoice, r)).ToHashSet();
+
+        CalculateInvoice(ref invoice);
+
+        _context.Invoices.Add(invoice);
+        await _context.SaveChangesAsync();
+
+        LogService.LogInvoiceAction(invoice.Id, user.Id, InvoiceActions.Created);
+
+        return new InvoiceDto(invoice);
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> ArchiveInvoice(string userId, string invoiceId)
     {
         if (await _userService.UserExistsById(userId))
@@ -109,75 +200,6 @@ public class InvoiceService : IInvoiceService
     }
 
     /// <inheritdoc/>
-    public async Task<InvoiceDto> CreateInvoice(string userId, CreateInvoiceRequest request)
-    {
-        var user =
-            await _context.Users.FirstOrDefaultAsync(u => u.Id.Equals(userId))
-            ?? throw new EntityNotFoundException("User not found of given id!");
-
-        var customer =
-            await _context.Customers.FirstOrDefaultAsync(
-                c => c.Id.Equals(request.CustomerId) && c.User.Id.Equals(userId)
-            ) ?? throw new EntityNotFoundException("Customer not found of given id!");
-
-        var invoice = new Invoice()
-        {
-            Id = IdGeneratorService.GetUniqueId(),
-            User = user,
-            Customer = customer,
-            Comment = request.Comment,
-            Discount = request.Discount,
-            EntityStatus = EntityStatus.Active,
-            Status = InvoiceStatus.Created,
-            CreatedAt = DateTimeOffset.Now,
-            UpdatedAt = DateTimeOffset.Now
-        };
-
-        if (request.Rows is not null && request.Rows.Count > 0)
-            invoice.Rows = request.Rows.Select(r => new InvoiceRow(invoice, r)).ToHashSet();
-
-        CalculateInvoice(ref invoice);
-
-        _context.Invoices.Add(invoice);
-        await _context.SaveChangesAsync();
-
-        LogService.LogInvoiceAction(invoice.Id, user.Id, InvoiceActions.Created);
-
-        return new InvoiceDto(invoice);
-    }
-
-    /// <inheritdoc/>
-    public async Task<bool> DeleteInvoice(string userId, string invoiceId)
-    {
-        if (await _userService.UserExistsById(userId))
-            throw new EntityNotFoundException("User not found of given id!");
-
-        var invoice =
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
-            ?? throw new EntityNotFoundException("Invoice not found of given id!");
-
-        if (invoice.Status is InvoiceStatus.Sent or InvoiceStatus.Paid or InvoiceStatus.Received)
-            throw new EntityProblemException(
-                "This invoice is already in process or finished, you cannot delete this invoice but you can archive it"
-            );
-
-        _context.Invoices.Remove(invoice);
-        await _context.SaveChangesAsync();
-
-        LogService.LogInvoiceAction(invoiceId, userId, InvoiceActions.Deleted);
-
-        return true;
-    }
-
-    /// <inheritdoc/>
     public async Task<InvoiceDto> EditInvoice(
         string userId,
         string invoiceId,
@@ -214,56 +236,34 @@ public class InvoiceService : IInvoiceService
     }
 
     /// <inheritdoc/>
-    public async Task<InvoiceDto?> GetInvoice(string userId, string invoiceId) =>
-        ConvertToDto(
+    public async Task<bool> DeleteInvoice(string userId, string invoiceId)
+    {
+        if (await _userService.UserExistsById(userId))
+            throw new EntityNotFoundException("User not found of given id!");
+
+        var invoice =
             await (
                 from u in _context.Users
                 join i in _context.Invoices on u.Id equals i.User.Id
-                join r in _context.InvoiceRows on i.Id equals r.Invoice.Id into rows
-                from r in rows.DefaultIfEmpty()
                 where
                     u.Id.Equals(userId)
                     && i.Id.Equals(invoiceId)
                     && i.EntityStatus == EntityStatus.Active
                 select i
             ).FirstOrDefaultAsync()
-        );
+            ?? throw new EntityNotFoundException("Invoice not found of given id!");
 
-    /// <inheritdoc/>
-    public async Task<PaginatedListDto<InvoiceDto>> GetInvoices(
-        string userId,
-        CreatePaginationRequest paginationRequest,
-        GetListQueryFilter filter
-    )
-    {
-        IQueryable<Invoice> query = _context.Invoices.Where(
-            c => c.User.Id.Equals(userId) && c.EntityStatus == EntityStatus.Active
-        );
+        if (invoice.Status is InvoiceStatus.Sent or InvoiceStatus.Paid or InvoiceStatus.Received)
+            throw new EntityProblemException(
+                "This invoice is already in process or finished, you cannot delete this invoice but you can archive it"
+            );
 
-        if (!string.IsNullOrWhiteSpace(filter.SearchInput))
-            query = query.Where(i => i.Rows.Any(r => r.Service.Contains(filter.SearchInput)));
+        _context.Invoices.Remove(invoice);
+        await _context.SaveChangesAsync();
 
-        switch (filter.Sorting)
-        {
-            case SortingSide.Ascending:
-                query = query.OrderBy(i => i.TotalSum);
+        LogService.LogInvoiceAction(invoiceId, userId, InvoiceActions.Deleted);
 
-                break;
-            case SortingSide.Descending:
-                query = query.OrderByDescending(i => i.TotalSum);
-                break;
-        }
-
-        var totalCount = await query.CountAsync();
-        var invoices = await query
-            .Skip((paginationRequest.Page - 1) * paginationRequest.PageSize)
-            .Take(paginationRequest.PageSize)
-            .ToListAsync();
-
-        return new PaginatedListDto<InvoiceDto>(
-            invoices.Select(t => new InvoiceDto(t)),
-            new PaginationMeta(paginationRequest.Page, paginationRequest.PageSize, totalCount)
-        );
+        return true;
     }
 
     /// <inheritdoc/>

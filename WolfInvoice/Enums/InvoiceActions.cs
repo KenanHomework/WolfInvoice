@@ -5,6 +5,7 @@ namespace WolfInvoice.Enums;
 /// <summary>
 /// Represents the various actions that can be performed on an invoice.
 /// </summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
 public enum InvoiceActions
 {
     /// <summary>

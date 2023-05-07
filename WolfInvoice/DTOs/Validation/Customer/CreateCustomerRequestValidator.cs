@@ -16,7 +16,7 @@ public class CreateCustomerRequestValidator : AbstractValidator<CreateCustomerRe
     {
         RuleFor(r => r.Email).NotEmpty().Must(SharedValidators.BeValidateEmail);
 
-        RuleFor(r => r.Name).NotEmpty().MinimumLength(4).Must(SharedValidators.BeValidateUsername);
+        RuleFor(r => r.Name).NotEmpty().MinimumLength(3).Must(SharedValidators.BeValidateUsername);
 
         RuleFor(r => r.PhoneNumber)
             .NotEmpty()

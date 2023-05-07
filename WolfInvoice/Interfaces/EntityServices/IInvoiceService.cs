@@ -100,7 +100,7 @@ public interface IInvoiceService
     /// <param name="request">The request parameters for creating the row.</param>
     /// <exception cref="EntityNotFoundException"/>
     /// <returns>The updated invoice.</returns>
-    public Task<InvoiceRowDto> AddRow(
+    public Task<InvoiceDto> AddRow(
         string userId,
         string invoiceId,
         CreateInvoiceRowRequest request
@@ -114,7 +114,7 @@ public interface IInvoiceService
     /// <param name="request">The request parameters for creating the rows.</param>
     /// <exception cref="EntityNotFoundException"/>
     /// <returns>The updated invoice.</returns>
-    public Task<HashSet<InvoiceRowDto>> AddRowRange(
+    public Task<InvoiceDto> AddRowRange(
         string userId,
         string invoiceId,
         IEnumerable<CreateInvoiceRowRequest> request
@@ -128,7 +128,7 @@ public interface IInvoiceService
     /// <param name="rowId">ID of the row</param>
     /// <exception cref="EntityNotFoundException"/>
     /// <returns></returns>
-    public Task<InvoiceRowDto> DeleteRow(string userId, string invoiceId, string rowId);
+    public Task<InvoiceDto> DeleteRow(string userId, string invoiceId, string rowId);
 
     /// <summary>
     /// Updates the invoice information according to the invoice row values in the given invoice object

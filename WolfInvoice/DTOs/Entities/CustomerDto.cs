@@ -25,6 +25,7 @@ public class CustomerDto
         Email = customer.Email;
         PhoneNumber = customer.PhoneNumber;
         CreatedAt = customer.CreatedAt;
+        CreditCard = customer.CreditCard;
     }
 
     /// <summary>

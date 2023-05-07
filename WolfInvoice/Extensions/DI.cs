@@ -163,8 +163,9 @@ public static class DI
     /// <returns>The modified IServiceCollection instance.</returns>
     public static IServiceCollection AddFluentValidation(this IServiceCollection services)
     {
+#pragma warning disable CS0618 // Type or member is obsolete
         FluentValidationMvcExtensions.AddFluentValidation(services);
-
+#pragma warning restore CS0618 // Type or member is obsolete
         services.AddValidatorsFromAssemblyContaining<CreateUserRequestValidator>();
 
         return services;

@@ -22,7 +22,7 @@ public class EditCustomerRequestValidator : AbstractValidator<EditCustomerReques
 
         RuleFor(r => r.Name)
             .NotEmpty()
-            .MinimumLength(4)
+            .MinimumLength(3)
             .Must(SharedValidators.BeValidateUsername)
             .When(r => r.Name is not null);
 

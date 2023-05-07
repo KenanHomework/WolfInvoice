@@ -135,26 +135,27 @@ public class InvoicesController : ControllerBase
         try
         {
             invoice = await _context.Invoices
-                .Include(i => i.Rows)
+                .Include(i => i.User)
                 .Include(i => i.Customer)
-                .FirstOrDefaultAsync(i => i.Id.Equals(invoiceId));
+                .Include(i => i.Rows)
+                .FirstOrDefaultAsync(i => i.Id.Equals(invoiceId) && i.User.Id.Equals(userId));
 
             if (invoice is null)
                 return NotFound();
 
             var document = new InvoiceDocument(invoice, _companyInfo);
 
-            return File(document.GeneratePdf(), "application/pdf");
+            string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string pdfFilePath = Path.Combine(desktopPath, $"WolfInvoice_invoice_{invoice.Id}.pdf");
+
+            document.GeneratePdf(pdfFilePath);
+
+            return Ok(File(document.GeneratePdf(), "application/pdf"));
         }
         catch (Exception)
         {
             return Problem("A problem has occurred please try again later");
         }
-
-        if (invoice is null)
-            return NotFound();
-
-        return Ok(invoice);
     }
 
     /// <summary>
@@ -162,7 +163,7 @@ public class InvoicesController : ControllerBase
     /// </summary>
     /// <param name="request">The invoice data to create.</param>
     /// <returns>The newly created invoice.</returns>
-    // POST: api/Users/5
+    // POST: api/invoices/5
     [HttpPost]
     public async Task<ActionResult<InvoiceDto>> CreateInvoice(CreateInvoiceRequest request)
     {
@@ -190,11 +191,113 @@ public class InvoicesController : ControllerBase
     }
 
     /// <summary>
+    /// Creates a new invoice row for a given invoice
+    /// </summary>
+    /// <param name="invoiceId">The ID of the invoice to add the row to</param>
+    /// <param name="request">The request object containing the row details</param>
+    /// <returns>The updated invoice object</returns>
+    [HttpPost("{invoiceId}/createRow")]
+    public async Task<ActionResult<InvoiceDto>> CreateInvoiceRow(
+        string invoiceId,
+        CreateInvoiceRowRequest request
+    )
+    {
+        if (_context.Invoices is null)
+            return NotFound();
+
+        var userId = _userProvider.GetUserInfo()!.Id;
+
+        InvoiceDto? invoice;
+
+        try
+        {
+            invoice = await _invoiceService.AddRow(userId, invoiceId, request);
+        }
+        catch (EntityNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (Exception)
+        {
+            return Problem("A problem has occurred please try again later");
+        }
+
+        return Ok(invoice);
+    }
+
+    /// <summary>
+    /// Creates multiple invoice rows for a given invoice
+    /// </summary>
+    /// <param name="invoiceId">The ID of the invoice to add the rows to</param>
+    /// <param name="request">An enumerable of request objects containing the row details</param>
+    /// <returns>The updated invoice object</returns>
+    [HttpPost("{invoiceId}/createRowRange")]
+    public async Task<ActionResult<InvoiceDto>> CreateInvoiceRowRange(
+        string invoiceId,
+        IEnumerable<CreateInvoiceRowRequest> request
+    )
+    {
+        if (_context.Invoices is null)
+            return NotFound();
+
+        var userId = _userProvider.GetUserInfo()!.Id;
+
+        InvoiceDto? invoice;
+
+        try
+        {
+            invoice = await _invoiceService.AddRowRange(userId, invoiceId, request);
+        }
+        catch (EntityNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (Exception)
+        {
+            return Problem("A problem has occurred please try again later");
+        }
+
+        return Ok(invoice);
+    }
+
+    /// <summary>
+    /// Deletes an invoice row from a given invoice
+    /// </summary>
+    /// <param name="invoiceId">The ID of the invoice to delete the row from</param>
+    /// <param name="rowId">The ID of the row to delete</param>
+    /// <returns>The updated invoice object</returns>
+    [HttpDelete("{invoiceId}/deleteRow")]
+    public async Task<ActionResult<InvoiceDto>> DeleteInvoiceRow(string invoiceId, string rowId)
+    {
+        if (_context.Invoices is null)
+            return NotFound();
+
+        var userId = _userProvider.GetUserInfo()!.Id;
+
+        InvoiceDto? invoice;
+
+        try
+        {
+            invoice = await _invoiceService.DeleteRow(userId, invoiceId, rowId);
+        }
+        catch (EntityNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (Exception)
+        {
+            return Problem("A problem has occurred please try again later");
+        }
+
+        return Ok(invoice);
+    }
+
+    /// <summary>
     /// Archive a invoice
     /// </summary>
     /// <param name="invoiceId">The id of the user to get</param>
     /// <returns>A result indicating success or failure</returns>
-    // PATCH: api/Users/5
+    // PATCH: api/invoices/5
     [HttpDelete("{invoiceId}/archive")]
     public async Task<IActionResult> ArchiveInvoice(string invoiceId)
     {
@@ -228,7 +331,7 @@ public class InvoicesController : ControllerBase
     /// <param name="invoiceId">The ID of the Invoice.</param>
     /// <param name="status">The new status to set.</param>
     /// <returns>The updated invoice.</returns>
-    // PATCH: api/Users/5
+    // PATCH: api/invoices/5
     [HttpPatch]
     public async Task<ActionResult<InvoiceDto>> ChangeInvoiceStatus(
         string invoiceId,

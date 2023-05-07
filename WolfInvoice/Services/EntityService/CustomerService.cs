@@ -18,17 +18,14 @@ namespace WolfInvoice.Services.EntityService;
 public class CustomerService : ICustomerService
 {
     private readonly WolfInvoiceContext _context;
-    private readonly IUserService _userService;
 
     /// <summary>
     /// Initialize object
     /// </summary>
     /// <param name="context"></param>
-    /// <param name="userService"></param>
-    public CustomerService(WolfInvoiceContext context, IUserService userService)
+    public CustomerService(WolfInvoiceContext context)
     {
         _context = context;
-        _userService = userService;
     }
 
     /// <inheritdoc/>
@@ -43,7 +40,7 @@ public class CustomerService : ICustomerService
         );
 
         if (!string.IsNullOrWhiteSpace(filter.SearchInput))
-            query = query.Where(c => c.Address.Contains(filter.SearchInput));
+            query = query.Where(c => c.Name.Contains(filter.SearchInput));
 
         switch (filter.Sorting)
         {
@@ -123,8 +120,9 @@ public class CustomerService : ICustomerService
     /// <inheritdoc/>
     public async Task<bool> ArchiveCustomer(string userId, string customerId)
     {
-        if (await _userService.UserExistsById(userId))
-            throw new EntityNotFoundException("User not found of given id!");
+        var user =
+            await _context.Users.FirstOrDefaultAsync(u => u.Id.Equals(userId))
+            ?? throw new EntityNotFoundException("User not found of given id!");
 
         var customer =
             await (
@@ -157,8 +155,9 @@ public class CustomerService : ICustomerService
         EditCustomerRequest request
     )
     {
-        if (await _userService.UserExistsById(userId))
-            throw new EntityNotFoundException("User not found of given id!");
+        var user =
+            await _context.Users.FirstOrDefaultAsync(u => u.Id.Equals(userId))
+            ?? throw new EntityNotFoundException("User not found of given id!");
 
         var customer =
             await (
@@ -193,17 +192,14 @@ public class CustomerService : ICustomerService
     /// <inheritdoc/>
     public async Task<bool> DeleteCustomer(string userId, string customerId)
     {
-        if (await _userService.UserExistsById(userId))
-            throw new EntityNotFoundException("User not found of given id!");
+        var user =
+            await _context.Users.FirstOrDefaultAsync(u => u.Id.Equals(userId))
+            ?? throw new EntityNotFoundException("User not found of given id!");
 
         var customer =
-            await (
-                from u in _context.Users
-                join c in _context.Customers on u.Id equals c.User.Id
-                join i in _context.Invoices on u.Id equals i.User.Id
-                where u.Id.Equals(userId) && c.Id.Equals(customerId)
-                select c
-            ).FirstOrDefaultAsync()
+            await _context.Customers
+                .Include(c => c.Invoices)
+                .FirstOrDefaultAsync(c => c.Id.Equals(customerId) && c.User.Id.Equals(userId))
             ?? throw new EntityNotFoundException("Customer not found of given id!");
 
         if (customer.Invoices.Count > 0)

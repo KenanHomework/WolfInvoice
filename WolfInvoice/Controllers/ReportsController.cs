@@ -15,24 +15,21 @@ namespace WolfInvoice.Controllers;
 [ApiController]
 public class ReportsController : ControllerBase
 {
-    private readonly WolfInvoiceContext _context;
     private readonly IReportService _reportService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReportsController"/> class.
     /// </summary>
-    /// <param name="context">The database context.</param>
     /// <param name="reportService">The report service.</param>
-    public ReportsController(WolfInvoiceContext context, IReportService reportService)
+    public ReportsController(IReportService reportService)
     {
-        _context = context;
         _reportService = reportService;
     }
 
     /// <summary>
     /// Gets the customer report for a specified time period.
     /// </summary>
-    /// <param name="period">The time period.</param>
+    /// <param name="request"></param>
     /// <returns>The customer report.</returns>
     [HttpGet("customer")]
     public async Task<ActionResult<CustomerReport>> GetCustomerReport(
@@ -82,7 +79,7 @@ public class ReportsController : ControllerBase
     /// </summary>
     /// <param name="period">The time period.</param>
     /// <returns>The invoice by status report.</returns>
-    [HttpGet("invoicebystatus")]
+    [HttpGet("invoiceByStatus")]
     public async Task<ActionResult<InvoiceByStatusReport>> GetInvoiceByStatusReport(
         [FromQuery] TimePeriod period
     )

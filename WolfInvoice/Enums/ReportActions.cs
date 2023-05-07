@@ -1,8 +1,11 @@
-﻿namespace WolfInvoice.Enums;
+﻿using System.Text.Json.Serialization;
+
+namespace WolfInvoice.Enums;
 
 /// <summary>
 /// Actions that can be performed for generating reports.
 /// </summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ReportActions
 {
     /// <summary>

@@ -230,11 +230,11 @@ public class CustomersController : ControllerBase
         if (_context.Customers is null)
             return NotFound();
 
-        var id = _userProvider.GetUserInfo()!.Id;
+        var userId = _userProvider.GetUserInfo()!.Id;
 
         try
         {
-            var condition = await _customerService.DeleteCustomer(customerId, id);
+            var condition = await _customerService.DeleteCustomer(userId, customerId);
 
             if (!condition)
                 return BadRequest(

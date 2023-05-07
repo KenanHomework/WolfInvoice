@@ -38,9 +38,10 @@ public class InvoiceService : IInvoiceService
         GetListQueryFilter filter
     )
     {
-        IQueryable<Invoice> query = _context.Invoices.Where(
-            c => c.User.Id.Equals(userId) && c.EntityStatus == EntityStatus.Active
-        );
+        IQueryable<Invoice> query = _context.Invoices
+            .Include(i => i.User)
+            .Include(i => i.Customer)
+            .Where(c => c.User.Id.Equals(userId) && c.EntityStatus == EntityStatus.Active);
 
         if (!string.IsNullOrWhiteSpace(filter.SearchInput))
             query = query.Where(i => i.Rows.Any(r => r.Service.Contains(filter.SearchInput)));
@@ -48,11 +49,11 @@ public class InvoiceService : IInvoiceService
         switch (filter.Sorting)
         {
             case SortingSide.Ascending:
-                query = query.OrderBy(i => i.TotalSum);
+                query = query.OrderBy(i => (double)i.TotalSum);
 
                 break;
             case SortingSide.Descending:
-                query = query.OrderByDescending(i => i.TotalSum);
+                query = query.OrderByDescending(i => (double)i.TotalSum);
                 break;
         }
 
@@ -70,19 +71,7 @@ public class InvoiceService : IInvoiceService
 
     /// <inheritdoc/>
     public async Task<InvoiceDto?> GetInvoice(string userId, string invoiceId) =>
-        ConvertToDto(
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                join r in _context.InvoiceRows on i.Id equals r.Invoice.Id into rows
-                from r in rows.DefaultIfEmpty()
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
-        );
+        ConvertToDto(await GetPrivateInvoice(userId, invoiceId));
 
     /// <inheritdoc/>
     public async Task<InvoiceDto> CreateInvoice(string userId, CreateInvoiceRequest request)
@@ -125,22 +114,16 @@ public class InvoiceService : IInvoiceService
     /// <inheritdoc/>
     public async Task<bool> ArchiveInvoice(string userId, string invoiceId)
     {
-        if (await _userService.UserExistsById(userId))
+        if (!await _userService.UserExistsById(userId))
             throw new EntityNotFoundException("User not found of given id!");
 
         var invoice =
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
+            await GetPrivateInvoice(userId, invoiceId)
             ?? throw new EntityNotFoundException("Invoice not found of given id!");
 
         invoice.EntityStatus = EntityStatus.Archived;
+
+        invoice.UpdatedAt = DateTime.UtcNow;
 
         _context.Update(invoice);
         await _context.SaveChangesAsync();
@@ -157,19 +140,11 @@ public class InvoiceService : IInvoiceService
         InvoiceStatus status
     )
     {
-        if (await _userService.UserExistsById(userId))
+        if (!await _userService.UserExistsById(userId))
             throw new EntityNotFoundException("User not found of given id!");
 
         var invoice =
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
+            await GetPrivateInvoice(userId, invoiceId)
             ?? throw new EntityNotFoundException("Invoice not found of given id!");
 
         switch (status)
@@ -191,6 +166,8 @@ public class InvoiceService : IInvoiceService
                 break;
         }
 
+        invoice.UpdatedAt = DateTime.UtcNow;
+
         _context.Update(invoice);
         await _context.SaveChangesAsync();
 
@@ -206,20 +183,11 @@ public class InvoiceService : IInvoiceService
         EditInvoiceRequest request
     )
     {
-        if (await _userService.UserExistsById(userId))
+        if (!await _userService.UserExistsById(userId))
             throw new EntityNotFoundException("User not found of given id!");
 
         var invoice =
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                join r in _context.InvoiceRows on i.Id equals r.Invoice.Id
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
+            await GetPrivateInvoice(userId, invoiceId)
             ?? throw new EntityNotFoundException("Invoice not found of given id!");
 
         invoice.Comment = request.Comment ?? invoice.Comment;
@@ -232,25 +200,17 @@ public class InvoiceService : IInvoiceService
 
         LogService.LogInvoiceAction(invoiceId, userId, InvoiceActions.Edited);
 
-        throw new NotImplementedException();
+        return new(invoice);
     }
 
     /// <inheritdoc/>
     public async Task<bool> DeleteInvoice(string userId, string invoiceId)
     {
-        if (await _userService.UserExistsById(userId))
+        if (!await _userService.UserExistsById(userId))
             throw new EntityNotFoundException("User not found of given id!");
 
         var invoice =
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
+            await GetPrivateInvoiceWithoutEntityStatus(userId, invoiceId)
             ?? throw new EntityNotFoundException("Invoice not found of given id!");
 
         if (invoice.Status is InvoiceStatus.Sent or InvoiceStatus.Paid or InvoiceStatus.Received)
@@ -290,29 +250,21 @@ public class InvoiceService : IInvoiceService
     /* Invoice Row */
 
     /// <inheritdoc/>
-    public async Task<InvoiceRowDto> AddRow(
+    public async Task<InvoiceDto> AddRow(
         string userId,
         string invoiceId,
         CreateInvoiceRowRequest request
     )
     {
         var invoice =
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                join r in _context.InvoiceRows on i.Id equals r.Invoice.Id into rows
-                from r in rows.DefaultIfEmpty()
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
+            await GetPrivateInvoice(userId, invoiceId)
             ?? throw new EntityNotFoundException("Invoice not found of given id!");
 
         var row = new InvoiceRow(invoice, request);
 
         invoice.Rows.Add(row);
+
+        CalculateInvoice(ref invoice);
 
         invoice.UpdatedAt = DateTime.UtcNow;
 
@@ -321,28 +273,18 @@ public class InvoiceService : IInvoiceService
 
         LogService.LogInvoiceAction(invoiceId, userId, InvoiceActions.RowAdded);
 
-        return new InvoiceRowDto(row);
+        return new InvoiceDto(invoice);
     }
 
     /// <inheritdoc/>
-    public async Task<HashSet<InvoiceRowDto>> AddRowRange(
+    public async Task<InvoiceDto> AddRowRange(
         string userId,
         string invoiceId,
         IEnumerable<CreateInvoiceRowRequest> request
     )
     {
         var invoice =
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                join r in _context.InvoiceRows on i.Id equals r.Invoice.Id into rowsTable
-                from r in rowsTable.DefaultIfEmpty()
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
+            await GetPrivateInvoice(userId, invoiceId)
             ?? throw new EntityNotFoundException("Invoice not found of given id!");
 
         var rows = request.Select(r => new InvoiceRow(invoice, r));
@@ -350,31 +292,23 @@ public class InvoiceService : IInvoiceService
         foreach (var row in rows)
             invoice.Rows.Add(row);
 
+        invoice.UpdatedAt = DateTime.UtcNow;
+
+        CalculateInvoice(ref invoice);
+
         _context.Update(invoice);
         await _context.SaveChangesAsync();
 
-        invoice.UpdatedAt = DateTime.UtcNow;
-
         LogService.LogInvoiceAction(invoiceId, userId, InvoiceActions.RowRangeAdded);
 
-        return rows.Select(r => new InvoiceRowDto(r)).ToHashSet();
+        return new InvoiceDto(invoice);
     }
 
     /// <inheritdoc/>
-    public async Task<InvoiceRowDto> DeleteRow(string userId, string invoiceId, string rowId)
+    public async Task<InvoiceDto> DeleteRow(string userId, string invoiceId, string rowId)
     {
         var invoice =
-            await (
-                from u in _context.Users
-                join i in _context.Invoices on u.Id equals i.User.Id
-                join r in _context.InvoiceRows on i.Id equals r.Invoice.Id into rows
-                from r in rows.DefaultIfEmpty()
-                where
-                    u.Id.Equals(userId)
-                    && i.Id.Equals(invoiceId)
-                    && i.EntityStatus == EntityStatus.Active
-                select i
-            ).FirstOrDefaultAsync()
+            await GetPrivateInvoice(userId, invoiceId)
             ?? throw new EntityNotFoundException("Invoice not found of given id!");
 
         var row =
@@ -385,11 +319,35 @@ public class InvoiceService : IInvoiceService
 
         invoice.UpdatedAt = DateTime.UtcNow;
 
+        CalculateInvoice(ref invoice);
+
         _context.Update(invoice);
         await _context.SaveChangesAsync();
 
         LogService.LogInvoiceAction(invoiceId, userId, InvoiceActions.RowDeleted);
 
-        return new InvoiceRowDto(row);
+        return new InvoiceDto(invoice);
     }
+
+    private async Task<Invoice?> GetPrivateInvoice(string userId, string invoiceId) =>
+        await _context.Invoices
+            .Include(i => i.User)
+            .Include(i => i.Customer)
+            .Include(i => i.Rows)
+            .FirstOrDefaultAsync(
+                i =>
+                    i.Id.Equals(invoiceId)
+                    && i.User.Id.Equals(userId)
+                    && i.EntityStatus == EntityStatus.Active
+            );
+
+    private async Task<Invoice?> GetPrivateInvoiceWithoutEntityStatus(
+        string userId,
+        string invoiceId
+    ) =>
+        await _context.Invoices
+            .Include(i => i.User)
+            .Include(i => i.Customer)
+            .Include(i => i.Rows)
+            .FirstOrDefaultAsync(i => i.Id.Equals(invoiceId) && i.User.Id.Equals(userId));
 }

@@ -67,6 +67,7 @@ public class ReportService : IReportService
         };
 
     /// <inheritdoc/>
+#pragma warning disable CS1998
     public async Task<InvoiceReport> GetInvoiceReport(
         TimePeriod period,
         InvoiceStatus? status = null
@@ -77,6 +78,7 @@ public class ReportService : IReportService
         InvoiceReport report = new();
 
         var invoices = _context.Invoices
+            .Where(i => status == null || i.Status == status)
             .ToListAsync()
             .Result.FindAll(
                 i =>
@@ -96,8 +98,9 @@ public class ReportService : IReportService
 
         return report;
     }
+#pragma warning restore CS1998
 
-    private bool IsWithinPeriodStart(DateTimeOffset dateToCheck, DateTimeOffset? periodStart)
+    private static bool IsWithinPeriodStart(DateTimeOffset dateToCheck, DateTimeOffset? periodStart)
     {
         if (periodStart is null)
             return true;
@@ -105,7 +108,7 @@ public class ReportService : IReportService
         return dateToCheck >= periodStart;
     }
 
-    private bool IsWithinPeriodEnd(DateTimeOffset dateToCheck, DateTimeOffset? periodEnd)
+    private static bool IsWithinPeriodEnd(DateTimeOffset dateToCheck, DateTimeOffset? periodEnd)
     {
         if (periodEnd == null)
             return true;

@@ -23,12 +23,6 @@ public class GetListQueryFilter
     public InvoiceStatus? InvoiceStatus { get; set; }
 
     /// <summary>
-    /// Gets or sets the entity status for filtering the list.
-    /// </summary>
-    [FromQuery(Name = "entityStatus")]
-    public EntityStatus? EntityStatus { get; set; }
-
-    /// <summary>
     /// Gets or sets the sorting criteria for sorting the list.
     /// </summary>
     [FromQuery(Name = "sorting")]

@@ -21,7 +21,7 @@ public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
             .MinimumLength(8)
             .Must(SharedValidators.BeValidatePassword);
 
-        RuleFor(r => r.Name).NotEmpty().MinimumLength(4).Must(SharedValidators.BeValidateUsername);
+        RuleFor(r => r.Name).NotEmpty().MinimumLength(3).Must(SharedValidators.BeValidateUsername);
 
         RuleFor(r => r.PhoneNumber)
             .NotEmpty()
